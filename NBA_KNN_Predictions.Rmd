@@ -1,0 +1,125 @@
+---
+title: "NBA_KNN_Predictions"
+author: "Ryan Salsbury"
+date: "10/16/2018"
+output: html_document
+---
+Predict Offensive and Defensive Win Shares for each NBA Player for the 2018 Season using a K-Nearest Neighbor Model. All Data preparation was done in excel. The two input files include cumulative stats up until each season of a player's career and the following season's OWS & DWS (objective variables). The goal was to find the most similar players historically to predict a player's OWS and DWS for the upcoming 2018-19 season. 
+
+Load Packages and read data
+```{r}
+library(caTools)
+library(caret)
+library(sqldf)
+
+OWS <- read.csv("KNN_OWS.csv")
+DWS <- read.csv("KNN_DWS.csv")
+```
+
+Create OWS Model
+```{r}
+#split into testing and training sets with 95% data in training
+set.seed(123)
+split = sample.split(OWS$OWS_Next, SplitRatio = 0.95)
+training_set = subset(OWS, split == TRUE)
+test_set = subset(OWS, split == FALSE)
+
+#remove player names
+training = training_set[,-1]
+test = test_set[,-1]
+
+#remove objective variable
+x.train = training[,-17]
+y.train = training[,17]
+x.test = test[,-17]
+y.test = test[,17]
+
+#setup cross validation with 10 folds
+trControl <- trainControl(method  = "cv",
+                          number  = 10)
+
+#train model to find most optimal K nearest neighbors(1-50) using RMSE as evaluator
+OWS <- train(OWS_Next ~ .,
+             method     = "knn",
+             tuneGrid   = expand.grid(k = 1:50),
+             trControl  = trControl,
+             metric     = "RMSE",
+             data       = training)
+
+#viewing the OWS variable shows that the optimal number of k is 18. 
+print(OWS)
+
+#validate on test data
+OWS_Predict <- predict(OWS,newdata = x.test)
+sqrt(mean((OWS_Predict - y.test)^2))
+
+```
+
+Create DWS Model
+```{r}
+#split into testing and training sets with 95% data in training
+set.seed(123)
+split = sample.split(DWS$DWS_Next, SplitRatio = 0.95)
+training_set = subset(DWS, split == TRUE)
+test_set = subset(DWS, split == FALSE)
+
+#remove Player Names
+training = training_set[,-1]
+test = test_set[,-1]
+
+#remove objective variable
+x.train = training[,-13]
+y.train = training[,13]
+x.test = test[,-13]
+y.test = test[,13]
+
+#setup cross validation with 10 folds
+trControl <- trainControl(method  = "cv",
+                          number  = 10)
+
+#train model to find most optimal K nearest neighbors(1-50) using RMSE as evaluator
+DWS <- train(DWS_Next ~ .,
+             method     = "knn",
+             tuneGrid   = expand.grid(k = 1:50),
+             trControl  = trControl,
+             metric     = "RMSE",
+             data       = training)
+
+#viewing the DWS variable shows that the optimal number of k is 20. 
+print(DWS)
+
+#validate on test data
+DWS_Predict <- predict(DWS,newdata = x.test)
+sqrt(mean((DWS_Predict - y.test)^2))
+
+```
+
+Make Predictions for this year
+```{r}
+
+#load new data for players this season
+Predict_OWS <- read.csv("Predict_OWS.csv")
+Predict_DWS <- read.csv("Predict_DWS.csv")
+
+#remove player names
+Predict_OWS_data = Predict_OWS[,-1]
+Predict_DWS_data = Predict_DWS[,-1]
+
+#run model on new data
+OWS_Predict <- predict(OWS,newdata = Predict_OWS_data)
+DWS_Predict <- predict(DWS,newdata = Predict_DWS_data)
+
+#convert predictions to data frame
+OWS_Predict <- as.data.frame(OWS_Predict)
+DWS_Predict <- as.data.frame(DWS_Predict)
+
+#join results to player names
+Predictions <- sqldf("select po.Player, o.OWS_Predict, d.DWS_Predict from Predict_OWS po JOIN OWS_Predict o ON po.rowid = o.rowid JOIN DWS_Predict d ON po.rowid = d.rowid")
+
+
+#view results
+print(Predictions)
+
+#export results to csv
+write.csv(x = Predictions, file = "NBA_WS_Projections.csv")
+```
